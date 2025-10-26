@@ -48,34 +48,34 @@ def noraml_retrievr(file_path):
     return retriever
 
 
-def split_pdf(filepath, batch_size=5):
-    """
-    입력 PDF를 분할 PDF 파일로 분할
-    """
-    # PDF 파일 열기
-    input_pdf = pymupdf.open(filepath)
-    num_pages = len(input_pdf)
-    print(f"총 페이지 수: {num_pages}")
+# def split_pdf(filepath, batch_size=5):
+#     """
+#     입력 PDF를 분할 PDF 파일로 분할
+#     """
+#     # PDF 파일 열기
+#     output_file_basename = os.path.splitext(filepath)[0]
+#     os.makedirs(output_file_basename, exist_ok=True)
+#     input_pdf = pymupdf.open(filepath)
+#     num_pages = len(input_pdf)
+#     print(f"총 페이지 수: {num_pages}")
 
-    ret = []
-    # PDF 분할
-    for start_page in range(0, num_pages, batch_size):
-        end_page = min(start_page + batch_size, num_pages) - 1
+#     ret = []
+#     # PDF 분할
+#     for start_page in range(0, num_pages, batch_size):
+#         end_page = min(start_page + batch_size, num_pages) - 1
+#         # 분할된 PDF 저장
+#         # /folder/example.pdf = > ['/folder/example','.pdf']
+#         output_file = f"{output_file_basename}_{start_page:04d}_{end_page:04d}.pdf"
+#         print(f"분할 PDF 생성: {output_file}")
+#         with pymupdf.open() as output_pdf:
+#             output_pdf.insert_pdf(input_pdf, from_page=start_page, to_page=end_page)
+#             output_pdf.save(output_file)
+#             ret.append(output_file)
 
-        # 분할된 PDF 저장
-        input_file_basename = os.path.splitext(filepath)[0]
-        # /folder/example.pdf = > ['/folder/example','.pdf']
-        print(input_file_basename)
-        output_file = f"{input_file_basename}_{start_page:04d}_{end_page:04d}.pdf"
-        print(f"분할 PDF 생성: {output_file}")
-        with pymupdf.open() as output_pdf:
-            output_pdf.insert_pdf(input_pdf, from_page=start_page, to_page=end_page)
-            output_pdf.save(output_file)
-            ret.append(output_file)
+#     # 입력 PDF 파일 닫기
+#     input_pdf.close()
 
-    # 입력 PDF 파일 닫기
-    input_pdf.close()
-    return ret
+#     return ret, output_file_basename
 
 
 def upstage_layout_analysis(input_files):
@@ -105,6 +105,28 @@ def upstage_layout_analysis(input_files):
             raise ValueError(f"예상치 못한 상태 코드: {response.status_code}")
     return analyzed_files
 
+
+# def reOrder_id(analysis_file_path):
+#     element_content = []
+#     page_range = 5
+#     last_number = 0
+#     for i, path in enumerate(sorted(analysis_file_path)):
+#         with open(path, "r", encoding="utf-8") as file:
+#             # 파일 내용을 파이썬 객체로 변환
+#             data = json.load(file)  # 보통 JSON 배열이면 list 타입이 됨
+#             change_page = page_range * i
+#             print(last_number)
+#             for j, element in enumerate(data["elements"]):
+#                 element["id"] = last_number + j
+#                 html_content = element["content"]["html"]
+#                 soup = BeautifulSoup(html_content, "html.parser")
+#                 tag = soup.find(attrs={"id": True})
+#                 tag["id"] = last_number + j
+#                 element["content"]["html"] = str(tag)
+#                 element["page"] = change_page + element["page"]
+#             last_number = len(data["elements"])
+#             element_content.extend(data["elements"])
+#     return element_content
 
 # class LayoutAnalyzer:
 #     analyzed_files = []
