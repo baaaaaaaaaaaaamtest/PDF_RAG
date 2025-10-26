@@ -18,6 +18,8 @@ from bs4 import BeautifulSoup
 from markdownify import markdownify as markdown
 from langchain_teddynote.models import MultiModal
 from dotenv import load_dotenv
+import base64
+from modules.prompt import *
 
 load_dotenv()
 
@@ -48,35 +50,34 @@ def noraml_retrievr(file_path):
     return retriever
 
 
-# def split_pdf(filepath, batch_size=5):
-#     """
-#     입력 PDF를 분할 PDF 파일로 분할
-#     """
-#     # PDF 파일 열기
-#     output_file_basename = os.path.splitext(filepath)[0]
-#     os.makedirs(output_file_basename, exist_ok=True)
-#     input_pdf = pymupdf.open(filepath)
-#     num_pages = len(input_pdf)
-#     print(f"총 페이지 수: {num_pages}")
+def split_pdf(filepath, batch_size=5):
+    """
+    입력 PDF를 분할 PDF 파일로 분할
+    """
+    # PDF 파일 열기
+    basename = os.path.splitext(filepath)[0]
+    filename = os.path.splitext(os.path.basename(basename))[0]
+    os.makedirs(basename, exist_ok=True)
+    input_pdf = pymupdf.open(filepath)
+    num_pages = len(input_pdf)
 
-#     ret = []
-#     # PDF 분할
-#     for start_page in range(0, num_pages, batch_size):
-#         end_page = min(start_page + batch_size, num_pages) - 1
-#         # 분할된 PDF 저장
-#         # /folder/example.pdf = > ['/folder/example','.pdf']
-#         output_file = f"{output_file_basename}_{start_page:04d}_{end_page:04d}.pdf"
-#         print(f"분할 PDF 생성: {output_file}")
-#         with pymupdf.open() as output_pdf:
-#             output_pdf.insert_pdf(input_pdf, from_page=start_page, to_page=end_page)
-#             output_pdf.save(output_file)
-#             ret.append(output_file)
+    ret = []
+    # PDF 분할
+    for start_page in range(0, num_pages, batch_size):
+        end_page = min(start_page + batch_size, num_pages) - 1
+        # 분할된 PDF 저장
+        # /folder/example.pdf = > ['/folder/example','.pdf']
+        output_file = f"{basename}\\{filename}_{start_page:04d}_{end_page:04d}.pdf"
+        print(f"분할 PDF 생성: {output_file}")
+        with pymupdf.open() as output_pdf:
+            output_pdf.insert_pdf(input_pdf, from_page=start_page, to_page=end_page)
+            output_pdf.save(output_file)
+            ret.append(output_file)
 
-#     # 입력 PDF 파일 닫기
-#     input_pdf.close()
+    # 입력 PDF 파일 닫기
+    input_pdf.close()
 
-#     return ret, output_file_basename
-
+    return ret, basename
 
 def upstage_layout_analysis(input_files):
     analyzed_files = []
@@ -106,63 +107,185 @@ def upstage_layout_analysis(input_files):
     return analyzed_files
 
 
-# def reOrder_id(analysis_file_path):
-#     element_content = []
-#     page_range = 5
-#     last_number = 0
-#     for i, path in enumerate(sorted(analysis_file_path)):
-#         with open(path, "r", encoding="utf-8") as file:
-#             # 파일 내용을 파이썬 객체로 변환
-#             data = json.load(file)  # 보통 JSON 배열이면 list 타입이 됨
-#             change_page = page_range * i
-#             print(last_number)
-#             for j, element in enumerate(data["elements"]):
-#                 element["id"] = last_number + j
-#                 html_content = element["content"]["html"]
-#                 soup = BeautifulSoup(html_content, "html.parser")
-#                 tag = soup.find(attrs={"id": True})
-#                 tag["id"] = last_number + j
-#                 element["content"]["html"] = str(tag)
-#                 element["page"] = change_page + element["page"]
-#             last_number = len(data["elements"])
-#             element_content.extend(data["elements"])
-#     return element_content
+def reOrder_id(analysis_file_path):
+    """ 
+        element 구성 변경
+        id 정렬
+        html 값 변경
+        page 값 수정
+    """
+    element_content = []
+    page_range = 5
+    last_number = 0
+    for i, path in enumerate(sorted(analysis_file_path)):
+        with open(path, "r", encoding="utf-8") as file:
+            # 파일 내용을 파이썬 객체로 변환
+            data = json.load(file)  # 보통 JSON 배열이면 list 타입이 됨
+            change_page = page_range * i
+            for j, element in enumerate(data["elements"]):
+                element["id"] = last_number + j
+                html_content = element["content"]["html"]
+                soup = BeautifulSoup(html_content, "html.parser")
+                tag = soup.find(attrs={"id": True})
+                tag["id"] = last_number + j
+                element["content"]["html"] = str(tag)
+                element["page"] = change_page + element["page"]
+            last_number = len(data["elements"])
+            element_content.extend(data["elements"])
+    return element_content
 
-# class LayoutAnalyzer:
-#     analyzed_files = []
+def extract_image(element_content,basename):
+    """ 
+        element_content 에서 base64 정보 가져와 이미지로 저장
+    """
+    arr = []
+    for idx, item in enumerate(element_content):
+        _dict = dict()
+        if "base64_encoding" in item:
+            _dict = {"base64_encoding": item["base64_encoding"]}
+            html_str = item["content"]["html"]
+            soup = BeautifulSoup(html_str, "html.parser")
+            img_tags = soup.find_all("img")
+            if img_tags:
+                base64_str = item["base64_encoding"]
+                # base64 문자열 디코딩
+                image_data = base64.b64decode(base64_str)
+                image_path = os.path.join(f"{basename}\\image_{idx}.png")
+                for img_tag in soup.find_all("img"):
+                    # 기존 속성 모두 제거
+                    img_tag.attrs.clear()
+                    # 원하는 텍스트를 src 속성에 넣기
+                    img_tag["src"] = image_path
+                # 이미지 파일 저장
+                _dict["content_text"] = str(img_tag)
+                with open(f"{image_path}", "wb") as img_file:
+                    img_file.write(image_data)
+                print(f"Saved image: {image_path}")
+            else:
+                _dict["content_text"] = item["content"]["html"]
+                print("이미지 태그가 없습니다.")
+        else:
+            _dict["content_text"] = item["content"]["html"]
+            print("base64_encoding params 없습니다.")
 
-#     def __init__(self, api_key):
-#         self.api_key = api_key
+        _dict["metadata"] = {"id": item["id"], "page": item["page"]}
+        arr.append(_dict)
+    return arr
 
-#     def _upstage_layout_analysis(self, input_file):
-#         """
-#         레이아웃 분석 API 호출
 
-#         :param input_file: 분석할 PDF 파일 경로
-#         :param output_file: 분석 결과를 저장할 JSON 파일 경로
-#         """
-#         # API 요청 보내기
-#         response = requests.post(
-#             # "https://api.upstage.ai/v1/document-ai/layout-analysis",
-#             "https://api.upstage.ai/v1/document-ai/document-parse",
-#             headers={"Authorization": f"Bearer {os.environ.get('UPSTAGE_API_KEY')}"},
-#             data={"ocr": False},
-#             files={"document": open(input_file, "rb")},
-#         )
+def order_image_prompt(_element_content):
+    """
+        이미지를 LLM에 전달하기전 프롬프트, 이미지주소 정렬
+    """
+    image_urls: list[str] = []
+    system_prompts: list[str] = []
+    user_prompts: list[str] = []
+    for idx, item in enumerate(_element_content):
+        previous_context = _element_content[idx - 1]["content_text"] if idx - 1 >= 0 else None
+        next_context = _element_content[idx + 1]["content_text"] if idx + 1 < len(_element_content) else None
+        id_str = item["metadata"]["id"]
+        html_str = item["content_text"]
+        soup = BeautifulSoup(html_str, "html.parser")
+        img_tag = soup.find("img")
+        if img_tag:
+            src_path = img_tag.get("src")
+            image_urls.append(src_path)
+            system_prompts.append(get_prompt_system_image_summary())
+            user_prompts.append(
+                get_prompt_user_image(previous_context, next_context, html_str, id_str)
+            )
+    return image_urls,system_prompts,user_prompts
 
-#         # 응답 저장
-#         if response.status_code == 200:
-#             output_file = os.path.splitext(input_file)[0] + ".json"
-#             with open(output_file, "w", encoding="utf-8") as f:
-#                 json.dump(response.json(), f, ensure_ascii=False)
-#             return output_file
-#         else:
-#             raise ValueError(f"예상치 못한 상태 코드: {response.status_code}")
 
-#     def execute(self, split_files):
-#         for file in split_files:
-#             self.analyzed_files.append(self._upstage_layout_analysis(file))
-#         return self.analyzed_files
+def change_image_text_to_summary(answer,_element_content):
+    """ 
+        llm 에서 받은 answer를 기반으로 해당 element 찾아 answer 추가
+    """
+    for html_str in answer:
+        soup = BeautifulSoup(html_str, "html.parser")
+        id_tag = soup.find("id")  # id 태그 찾기
+        if id_tag:
+            id_value = id_tag.text.strip()  # 텍스트 추출 후 공백 제거
+            # data[id_value]['content_text'] = html_str
+            _element_content[int(id_value)]["content_text"] = html_str
+            print("id 값:", id_value)
+        else:
+            print("id 태그를 찾을 수 없습니다.")
+    return _element_content
+
+
+def order_equation_prompt(change_element_content):
+    """
+        방정식 전후 내용을 포함하여 프롬프트, 내용 정렬 
+    """
+    system_prompts: list[str] = []
+    user_prompts: list[str] = []
+
+    for idx, item in enumerate(change_element_content):
+        previous_context = change_element_content[idx - 1]["content_text"] if idx - 1 >= 0 else None
+        next_context = change_element_content[idx + 1]["content_text"] if idx + 1 < len(change_element_content) else None
+        id_str = item["metadata"]["id"]
+        html_str = item["content_text"]
+        soup = BeautifulSoup(html_str, "html.parser")
+        equation_tag = soup.find(attrs={"data-category": "equation"})
+        if equation_tag:
+            system_prompts.append(get_prompt_system_equation_summary())
+            user_prompts.append(
+                get_prompt_user_equation(
+                    previous_context, next_context, equation_tag.get_text(), id_str
+                )
+            )
+    return system_prompts,user_prompts
+
+def create_messages(system_prompt, user_prompt):
+    messages = [
+        {
+            "role": "system",
+            "content": system_prompt,
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": user_prompt,
+                },
+            ],
+        },
+    ]
+    return messages
+
+def request_llm_equation(system_prompts, user_prompts):
+    """ 
+        llm에게 방정식에대한 설명 요청
+    """
+    messages = []
+    for system_prompt, user_prompt in zip(system_prompts, user_prompts):
+        message = create_messages(system_prompt, user_prompt)
+        messages.append(message)
+    llm = get_gpt()
+    return llm.batch(messages)
+
+
+def add_eqaution_description(answer,change_element_content):
+    """ 
+        llm 에서 받은 answer를 기반으로 해당 element 찾아 answer 추가
+    """
+    for r in answer:
+        html_str = r.content
+        soup = BeautifulSoup(html_str, "html.parser")
+        id_tag = soup.find("id")  # id 태그 찾기
+        if id_tag:
+            id_value = id_tag.text.strip()  # 텍스트 추출 후 공백 제거
+            new_p = soup.new_tag("p")
+            new_p.string = html_str
+            change_element_content[int(id_value)]["content_text"] = (
+                change_element_content[int(id_value)]["content_text"] + html_str
+            )
+            print("id 값:", id_value)
+        else:
+            print("id 태그를 찾을 수 없습니다.")
+    return change_element_content
 
 
 class PDFImageProcessor:
