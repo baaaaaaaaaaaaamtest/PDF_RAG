@@ -3,16 +3,16 @@ import streamlit as st
 from langchain_teddynote import logging
 from dotenv import load_dotenv
 from langchain_core.messages.chat import ChatMessage
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_openai import ChatOpenAI
 from langchain_teddynote.prompts import load_prompt
-from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 from modules.utils import *
+from modules.prompt import *
+from langchain_core.output_parsers import StrOutputParser
 
 load_dotenv()
 
 logging.langsmith("[Project] Upstage PDF RAG")
-
 
 # 캐시 디렉토리 생성
 if not os.path.exists(".cache"):
@@ -45,8 +45,6 @@ with st.sidebar:
     # 파일 업로드
     uploaded_file = st.file_uploader("파일 업로드", type=["pdf"])
 
-    # uploaded_btn_apply = st.button("pdf 분석")
-
     # 모델 선택 메뉴
     selected_model = st.selectbox(
         "LLM 선택", ["gpt-4o", "gpt-4-turbo", "gpt-4o-mini"], index=2
@@ -66,48 +64,59 @@ def add_message(role, message):
     st.session_state["messages"].append(ChatMessage(role=role, content=message))
 
 
-# 파일을 캐시 저장(시간이 오래 걸리는 작업을 처리할 예정)
-# @st.cache_resource(show_spinner="업로드한 파일을 처리 중입니다...")
 def embed_file(file):
-    print(file)
-    # 업로드한 파일을 캐시 디렉토리에 저장합니다.
-    file_content = file.read()
-    file_path = f"./.cache/files/{file.name}"
-    output_folder = os.path.splitext(file_path)[0]
-    print(file_path)
-    with open(file_path, "wb") as f:
-        f.write(file_content)
+    with st.spinner("업로드한 파일을 처리 중입니다..."):
+        file_content = file.read()
+        file_path = f"./.cache/files/{file.name}"
+        embedding_path = f"./.cache/embeddings/{file.name}"
+        embedding_basename = os.path.splitext(embedding_path)[0]
+        with open(file_path, "wb") as f:
+            f.write(file_content)
 
-    # 분석 방법 선택
-    if selected_method == "normal":
-        print("normal")
-        retriever = noraml_retrievr(file_path)
-    elif selected_method == "upstage":
-        print("upstage")
-        final_output_path = f"{output_folder}\\analysis.html"
-        if os.path.isfile(final_output_path):
-            print("File exists.")
-        else:
-            print("File does not exists.")
-            split_files = split_pdf(file_path)
-            analyser = LayoutAnalyzer(os.environ.get("UPSTAGE_API_KEY"))
-            analyser.execute(split_files)  # json 파일로 변환하여 저장 완료
-            image_processor = PDFImageProcessor(file_path)
-            html_content = image_processor.extract_images()
-            add_summary_to_html(html_content, image_processor.output_folder)
-            print("변환 완료")
-        docs = get_docs(output_folder)
-        faiss_retriever = get_retriever(docs)
-        bm25_retriever = get_bm25_retriever(docs)
-        retriever = get_esenmble_retriever(faiss_retriever, bm25_retriever)
-
+        # 분석 방법 선택
+        if selected_method == "normal":
+            print("normal")
+            retriever = noraml_retrievr(file_path)
+        elif selected_method == "upstage":
+            print("upstage")
+            if os.path.exists(embedding_basename):
+                print("이미 존재")
+                retriever = load_retreiver(embedding_basename)
+            else:
+                print("생성 필요")
+                file_paths, basename = split_pdf(file_path)  # 파일 분할
+                analysis_file_path = upstage_layout_analysis(
+                    file_paths
+                )  # upstage 파일 분석
+                element_content = reOrder_id(analysis_file_path)  # order_id 재배치
+                _element_content = extract_image(
+                    element_content, basename
+                )  # 이미지 저장
+                image_urls, system_prompts, user_prompts = order_image_prompt(
+                    _element_content
+                )  # 이미지 summary 전처리
+                image_answer = get_image_summary(
+                    image_urls, system_prompts, user_prompts
+                )  # summar from llm
+                change_element_content = add_image_description(
+                    image_answer, _element_content
+                )
+                system_prompts, user_prompts = order_equation_prompt(
+                    change_element_content
+                )
+                equation_answer = request_llm_equation(system_prompts, user_prompts)
+                final_content = add_eqaution_description(
+                    equation_answer, change_element_content
+                )
+                docs = change_json_to_document(final_content)
+                retriever = get_retriever(docs, embedding_path)
+                # bm25_retriever = get_bm25_retriever(docs)
+                # retriever = get_esenmble_retriever(faiss_retriever, bm25_retriever)
     return retriever
 
 
 # 체인 생성
 def create_chain(model_name="gpt-4o"):
-    # 단계 7: 언어모델(LLM) 생성
-    # 모델(LLM) 을 생성합니다.
     llm = ChatOpenAI(model_name=model_name, temperature=0)
     return llm
 
@@ -128,7 +137,7 @@ if uploaded_file:
 if clear_btn:
     st.session_state["messages"] = []
 
-
+print_messages()
 # 사용자의 입력
 user_input = st.chat_input("궁금한 내용을 물어보세요!")
 
@@ -140,23 +149,16 @@ if user_input:
     # chain 을 생성
     llm = st.session_state["llm"]
     if llm is not None:
-        # 사용자의 입력
         st.chat_message("user").write(user_input)
-        # 스트리밍 호출
-        # 단계 6: 프롬프트 생성(Create Prompt)
-        # 프롬프트를 생성합니다.
-        prompt = load_prompt("prompts/pdf-rag.yaml", encoding="utf-8")
+        prompt = get_prompt_user_request()
         retriever = st.session_state["retriever"]
         reranker_docs = get_reranker(retriever, user_input)
         reorder_docs = reorder_documents(reranker_docs)
-        # print(reorder_docs)
-        # print(user_input)
         chain = prompt | llm | StrOutputParser()
         response = chain.stream({"question": user_input, "context": reorder_docs})
         with st.chat_message("assistant"):
             # 빈 공간(컨테이너)을 만들어서, 여기에 토큰을 스트리밍 출력한다.
             container = st.empty()
-
             ai_answer = ""
             for token in response:
                 ai_answer += token
