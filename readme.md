@@ -17,6 +17,10 @@
 - .env copy 를 .env 로 name 변경 
 - UPSTAGE_API_KEY,COHERE_API_KEY,LANGSMITH_TRACING,LANGSMITH_ENDPOINT,LANGSMITH_API_KEY,LANGSMITH_PROJECT,OPENAI_API_KEY 입력
 
+## Sample Image
+<img width="860" height="640" alt="화면 캡처 2025-10-27 124111" src="https://github.com/user-attachments/assets/e15b63d2-82f9-4810-bd9f-69616797a362" />
+
+
 ## 참고 자료
 - [Streamlit 공식 문서](https://docs.streamlit.io/)
 - [LangChain RAG 샘플](https://github.com/streamlit/example-app-langchain-rag)
